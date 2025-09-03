@@ -1,6 +1,12 @@
 {
   "2025-09-03": [
     {
+      "time": "9:15",
+      "type": "drink",
+      "amount_ml": 65,
+      "user": "Z"
+    },
+    {
       "time": "09:15",
       "type": "temperature",
       "temperature_celsius": 36.6,

@@ -180,36 +180,56 @@ class BabyFeedingBot:
         try:
             amsterdam_time = self.get_amsterdam_time()
             current_time = amsterdam_time.time()
+            print(f"🕐 Current Amsterdam time: {current_time.strftime('%H:%M:%S')}")
+            print(f"📅 Past time to compare: {past_time_str}")
 
-            # Parse the past time string (HH:MM:SS format)
-            past_hour, past_minute, past_second = map(int, past_time_str.split(':'))
+            # Parse the past time string (supports both HH:MM and HH:MM:SS formats)
+            time_parts = past_time_str.split(':')
+
+            if len(time_parts) == 2:
+                # HH:MM format
+                past_hour, past_minute = map(int, time_parts)
+                past_second = 0
+            elif len(time_parts) == 3:
+                # HH:MM:SS format
+                past_hour, past_minute, past_second = map(int, time_parts)
+            else:
+                raise ValueError(f"Invalid time format: {past_time_str}")
 
             # Create datetime objects for comparison
             current_datetime = amsterdam_time.replace(hour=current_time.hour, minute=current_time.minute, second=current_time.second)
             past_datetime = amsterdam_time.replace(hour=past_hour, minute=past_minute, second=past_second)
 
+            print(f"🔍 Comparing: Current={current_datetime.strftime('%H:%M:%S')}, Past={past_datetime.strftime('%H:%M:%S')}")
+
             # Calculate difference
             if past_datetime > current_datetime:
                 # If past time is later than current time, it might be from yesterday
                 past_datetime = past_datetime.replace(day=past_datetime.day - 1)
+                print(f"📆 Adjusted past time to yesterday: {past_datetime.strftime('%H:%M:%S')}")
 
             time_diff = current_datetime - past_datetime
+            print(f"⏱️ Time difference: {time_diff}")
 
             # Format the difference
             total_minutes = int(time_diff.total_seconds() / 60)
             hours = total_minutes // 60
             minutes = total_minutes % 60
 
+            result = ""
             if hours > 0:
                 if minutes > 0:
-                    return f"{hours}u{minutes}m geleden"
+                    result = f"{hours}u{minutes}m geleden"
                 else:
-                    return f"{hours}u geleden"
+                    result = f"{hours}u geleden"
             else:
-                return f"{minutes}m geleden"
+                result = f"{minutes}m geleden"
+
+            print(f"📊 Final result: {result}")
+            return result
 
         except (ValueError, AttributeError) as e:
-            print(f"Error calculating time difference: {e}")
+            print(f"❌ Error calculating time difference: {e}")
             return "tijd onbekend"
 
     def format_dutch_date(self, datetime_obj):
@@ -284,10 +304,27 @@ class BabyFeedingBot:
             await update.message.reply_text("📅 No events recorded today yet.")
             return
 
-        # Separate different types of events
+        # Separate different types of events and sort each by time
         feedings = [event for event in events if event.get('type') == 'drink']
         temperatures = [event for event in events if event.get('type') == 'temperature']
         diaper_changes = [event for event in events if event.get('type') == 'diaper']
+
+        # Sort each category by time (earliest first) with proper time parsing
+        def parse_time(time_str):
+            """Parse time string and return comparable value"""
+            try:
+                parts = time_str.split(':')
+                if len(parts) >= 2:
+                    hours = int(parts[0])
+                    minutes = int(parts[1])
+                    return hours * 60 + minutes  # Convert to total minutes
+                return 0
+            except (ValueError, IndexError):
+                return 0
+
+        feedings.sort(key=lambda x: parse_time(x['time']))
+        temperatures.sort(key=lambda x: parse_time(x['time']))
+        diaper_changes.sort(key=lambda x: parse_time(x['time']))
 
         amsterdam_time = self.get_amsterdam_time()
 
@@ -321,7 +358,8 @@ class BabyFeedingBot:
             diaper_names = {
                 "pooped": "💩 Gepoept",
                 "peed": "💧 Geplast",
-                "both": "🧷 Beiden"
+                "both": "🧷 Beiden",
+                "urine": "💧 Geplast"  # Handle legacy "urine" type
             }
             message += "🧷 Luiers:\n"
             for i, diaper in enumerate(diaper_changes, 1):
@@ -338,8 +376,11 @@ class BabyFeedingBot:
         else:
             # Add time since last feeding information
             if feedings:
+                # After sorting, the last item is the most recent
                 last_feeding = feedings[-1]  # Get the most recent feeding
+                print(f"🔍 Last feeding time: {last_feeding['time']} (after sorting)")
                 time_ago = self.format_time_difference(last_feeding['time'])
+                print(f"⏰ Time difference calculated: {time_ago}")
                 message += f"\n🍼 Laatste flesje was {time_ago} 🕐"
 
         await update.message.reply_text(message)
