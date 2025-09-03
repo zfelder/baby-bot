@@ -18,7 +18,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 class BabyFeedingBot:
     def __init__(self):
-        print("👶 Initializing Baby Feeding Bot...")
+        print("👸 Initializing Baby Feeding Bot...")
         self.token = config.TELEGRAM_CREDENTIALS['bot_token']
         self.authorized_users = config.AUTHORIZED_USERS
         self.authorized_user_ids = config.AUTHORIZED_USER_IDS
@@ -175,6 +175,78 @@ class BabyFeedingBot:
         events.sort(key=lambda x: x['time'])
         return events
 
+    def format_time_difference(self, past_time_str):
+        """Format time difference between now and past time in Dutch"""
+        try:
+            amsterdam_time = self.get_amsterdam_time()
+            current_time = amsterdam_time.time()
+
+            # Parse the past time string (HH:MM:SS format)
+            past_hour, past_minute, past_second = map(int, past_time_str.split(':'))
+
+            # Create datetime objects for comparison
+            current_datetime = amsterdam_time.replace(hour=current_time.hour, minute=current_time.minute, second=current_time.second)
+            past_datetime = amsterdam_time.replace(hour=past_hour, minute=past_minute, second=past_second)
+
+            # Calculate difference
+            if past_datetime > current_datetime:
+                # If past time is later than current time, it might be from yesterday
+                past_datetime = past_datetime.replace(day=past_datetime.day - 1)
+
+            time_diff = current_datetime - past_datetime
+
+            # Format the difference
+            total_minutes = int(time_diff.total_seconds() / 60)
+            hours = total_minutes // 60
+            minutes = total_minutes % 60
+
+            if hours > 0:
+                if minutes > 0:
+                    return f"{hours}u{minutes}m geleden"
+                else:
+                    return f"{hours}u geleden"
+            else:
+                return f"{minutes}m geleden"
+
+        except (ValueError, AttributeError) as e:
+            print(f"Error calculating time difference: {e}")
+            return "tijd onbekend"
+
+    def format_dutch_date(self, datetime_obj):
+        """Format datetime object to Dutch date format"""
+        # Dutch day names
+        dutch_days = {
+            0: "maandag",
+            1: "dinsdag",
+            2: "woensdag",
+            3: "donderdag",
+            4: "vrijdag",
+            5: "zaterdag",
+            6: "zondag"
+        }
+
+        # Dutch month names
+        dutch_months = {
+            1: "januari",
+            2: "februari",
+            3: "maart",
+            4: "april",
+            5: "mei",
+            6: "juni",
+            7: "juli",
+            8: "augustus",
+            9: "september",
+            10: "oktober",
+            11: "november",
+            12: "december"
+        }
+
+        day_name = dutch_days[datetime_obj.weekday()]
+        day = datetime_obj.day
+        month_name = dutch_months[datetime_obj.month]
+
+        return f"{day_name} {day} {month_name}"
+
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command"""
         user_id = update.effective_user.id
@@ -189,7 +261,7 @@ class BabyFeedingBot:
             return
 
         print(f"✅ Authorized user {user_id} ({user_name}) started the bot")
-        await update.message.reply_text("👶 Baby Feeding Tracker Online!\n\n📋 Commands:\n/start - Toon hulp\n/today - Bekijk dagelijkse gebeurtenissen\n/toevoegen_fles - Voeg flesvoeding toe\n/toevoegen_temp - Voeg temperatuur toe\n/toevoegen_luier - Voeg luiersessie toe")
+        await update.message.reply_text("👸 Baby Feeding Tracker Online!\n\n📋 Commands:\n/start - Toon hulp\n/today - Bekijk dagelijkse gebeurtenissen\n/toevoegen_fles - Voeg flesvoeding toe\n/toevoegen_temp - Voeg temperatuur toe\n/toevoegen_luier - Voeg luiersessie toe")
 
     async def today_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /today command to show today's feedings"""
@@ -218,15 +290,20 @@ class BabyFeedingBot:
         diaper_changes = [event for event in events if event.get('type') == 'diaper']
 
         amsterdam_time = self.get_amsterdam_time()
-        message = f"📅 Today's Events ({amsterdam_time.strftime('%Y-%m-%d')} - Amsterdam time):\n\n"
+
+        # Format date in Dutch
+        dutch_date = self.format_dutch_date(amsterdam_time)
+        message = f"👸 Sofia's momentjes op {dutch_date}:\n\n"
 
         # Show bottle feedings
         if feedings:
             total_ml = sum(feeding["amount_ml"] for feeding in feedings)
-            message += "🍼 Flesvoedingen:\n"
+            message += "🍼 Flesjes:\n"
             for i, feeding in enumerate(feedings, 1):
                 user_initial = feeding.get('user', '?')
-                message += f"  {i}. {feeding['time']} - {feeding['amount_ml']}ml [{user_initial}]\n"
+                # Show time without seconds (HH:MM instead of HH:MM:SS)
+                short_time = feeding['time'][:5] if len(feeding['time']) >= 5 else feeding['time']
+                message += f"  {i}. {short_time} - {feeding['amount_ml']}ml [{user_initial}]\n"
             message += f"  💧 Totaal: {total_ml}ml\n\n"
 
         # Show temperature measurements
@@ -234,7 +311,9 @@ class BabyFeedingBot:
             message += "🌡️ Temperaturen:\n"
             for i, temp in enumerate(temperatures, 1):
                 user_initial = temp.get('user', '?')
-                message += f"  {i}. {temp['time']} - {temp['temperature_celsius']}°C [{user_initial}]\n"
+                # Show time without seconds (HH:MM instead of HH:MM:SS)
+                short_time = temp['time'][:5] if len(temp['time']) >= 5 else temp['time']
+                message += f"  {i}. {short_time} - {temp['temperature_celsius']}°C [{user_initial}]\n"
             message += "\n"
 
         # Show diaper changes
@@ -244,15 +323,24 @@ class BabyFeedingBot:
                 "peed": "💧 Geplast",
                 "both": "🧷 Beiden"
             }
-            message += "🧷 Luiersessies:\n"
+            message += "🧷 Luiers:\n"
             for i, diaper in enumerate(diaper_changes, 1):
                 readable_name = diaper_names.get(diaper['diaper_type'], diaper['diaper_type'])
                 user_initial = diaper.get('user', '?')
-                message += f"  {i}. {diaper['time']} - {readable_name} [{user_initial}]\n"
+                # Show time without seconds (HH:MM instead of HH:MM:SS)
+                short_time = diaper['time'][:5] if len(diaper['time']) >= 5 else diaper['time']
+                message += f"  {i}. {short_time} - {readable_name} [{user_initial}]\n"
 
         # If no events today
         if not feedings and not temperatures and not diaper_changes:
-            message = f"📅 No events recorded today yet ({amsterdam_time.strftime('%Y-%m-%d')})."
+            dutch_date = self.format_dutch_date(amsterdam_time)
+            message = f"📅 Nog geen momentjes vandaag op {dutch_date}."
+        else:
+            # Add time since last feeding information
+            if feedings:
+                last_feeding = feedings[-1]  # Get the most recent feeding
+                time_ago = self.format_time_difference(last_feeding['time'])
+                message += f"\n🍼 Laatste flesje was {time_ago} 🕐"
 
         await update.message.reply_text(message)
 
@@ -284,7 +372,7 @@ class BabyFeedingBot:
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
-            "👶 Kies het type luierwissel:",
+            "👸 Kies het type luierwissel:",
             reply_markup=reply_markup
         )
 
@@ -356,7 +444,7 @@ class BabyFeedingBot:
                     # Clear the awaiting state
                     context.user_data['awaiting_feeding_amount'] = False
 
-                    await update.message.reply_text(f"✅ Fles toegevoegd: {amount}ml om {amsterdam_time.strftime('%H:%M:%S')} (Amsterdam tijd)")
+                    await update.message.reply_text(f"✅ Fles toegevoegd: {amount}ml om {amsterdam_time.strftime('%H:%M')} (Amsterdam tijd)")
                 else:
                     await update.message.reply_text("❌ Voer een geldig aantal ml in (1-500).")
             except ValueError:
@@ -375,7 +463,7 @@ class BabyFeedingBot:
                     # Clear the awaiting state
                     context.user_data['awaiting_temperature'] = False
 
-                    await update.message.reply_text(f"✅ Temperatuur toegevoegd: {temperature}°C om {amsterdam_time.strftime('%H:%M:%S')} (Amsterdam tijd)")
+                    await update.message.reply_text(f"✅ Temperatuur toegevoegd: {temperature}°C om {amsterdam_time.strftime('%H:%M')} (Amsterdam tijd)")
                 else:
                     await update.message.reply_text("❌ Voer een geldige temperatuur in (30.0-45.0°C).")
             except ValueError:
@@ -417,7 +505,7 @@ class BabyFeedingBot:
 
             await query.edit_message_text(
                 f"✅ Luiersessie toegevoegd: {readable_name}\n"
-                f"Tijd: {self.get_amsterdam_time().strftime('%H:%M:%S')} (Amsterdam tijd)"
+                f"Tijd: {self.get_amsterdam_time().strftime('%H:%M')} (Amsterdam tijd)"
             )
 
     async def send_notification(self, message: str, parse_mode: str = 'HTML') -> None:
@@ -445,7 +533,7 @@ class BabyFeedingBot:
         print(f"🔐 Security: Only authorized users can interact with this bot")
 
         await self.send_notification(
-            "👶 Baby Feeding Tracker is starting up! 🕐 All times are in Amsterdam timezone (CET/CEST).\n\n"
+            "👸 Baby Feeding Tracker is starting up! 🕐 All times are in Amsterdam timezone (CET/CEST).\n\n"
             "📋 Features:\n"
             "🍼 Track bottle feedings (/toevoegen_fles)\n"
             "🌡️ Track temperatures (/toevoegen_temp)\n"
