@@ -1,33 +1,57 @@
 {
   "2025-09-03": [
     {
-      "time": "16:10:48",
+      "time": "09:15",
       "type": "temperature",
-      "temperature_celsius": 37.5,
+      "temperature_celsius": 36.6,
       "user": "Z"
     },
     {
-      "time": "16:11:04",
+      "time": "09:15",
+      "type": "diaper",
+      "diaper_type": "urine",
+      "user": "Z"
+    },
+    {
+      "time": "10:15",
+      "type": "drink",
+      "amount_ml": 35,
+      "user": "Z"
+    },
+    {
+      "time": "12:45",
       "type": "temperature",
       "temperature_celsius": 36.5,
       "user": "Z"
     },
     {
-      "time": "14:11:25",
-      "type": "drink",
-      "amount_ml": 40,
-      "user": "Z"
-    },
-    {
-      "time": "16:11:30",
+      "time": "12:45",
       "type": "diaper",
-      "diaper_type": "pooped",
+      "diaper_type": "urine",
       "user": "Z"
     },
     {
-      "time": "13:15:23",
+      "time": "12:45",
       "type": "drink",
-      "amount_ml": 8,
+      "amount_ml": 65,
+      "user": "Z"
+    },
+    {
+      "time": "15:15",
+      "type": "temperature",
+      "temperature_celsius": 36.5,
+      "user": "Z"
+    },
+    {
+      "time": "15:15",
+      "type": "diaper",
+      "diaper_type": "urine",
+      "user": "Z"
+    },
+    {
+      "time": "15:15",
+      "type": "drink",
+      "amount_ml": 65,
       "user": "Z"
     }
   ]
