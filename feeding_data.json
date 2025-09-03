@@ -1,0 +1,28 @@
+{
+  "2025-09-03": [
+    {
+      "time": "16:10:48",
+      "type": "temperature",
+      "temperature_celsius": 37.5,
+      "user": "Z"
+    },
+    {
+      "time": "16:11:04",
+      "type": "temperature",
+      "temperature_celsius": 36.5,
+      "user": "Z"
+    },
+    {
+      "time": "16:11:25",
+      "type": "drink",
+      "amount_ml": 40,
+      "user": "Z"
+    },
+    {
+      "time": "16:11:30",
+      "type": "diaper",
+      "diaper_type": "pooped",
+      "user": "Z"
+    }
+  ]
+}
