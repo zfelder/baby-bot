@@ -199,18 +199,6 @@
       "type": "drink",
       "amount_ml": 65,
       "user": "R"
-    },
-    {
-      "time": "13:37:00",
-      "type": "drink",
-      "amount_ml": 190,
-      "user": "Z"
-    },
-    {
-      "time": "0:00:00",
-      "type": "drink",
-      "amount_ml": 100,
-      "user": "Z"
     }
   ]
 }
