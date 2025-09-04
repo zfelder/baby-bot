@@ -5,6 +5,7 @@ import config
 import asyncio
 import json
 import os
+import re
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
 
@@ -65,6 +66,28 @@ class BabyFeedingBot:
         """Get current time in Amsterdam timezone"""
         return datetime.now(self.timezone)
 
+    def _validate_time_format(self, time_str):
+        """Validate time format HH:MM"""
+        try:
+            # Check format with regex: HH:MM where H and M are digits
+            if not re.match(r'^\d{1,2}:\d{2}$', time_str):
+                return False
+
+            # Parse hours and minutes
+            parts = time_str.split(':')
+            hours = int(parts[0])
+            minutes = int(parts[1])
+
+            # Validate ranges
+            if hours < 0 or hours > 23:
+                return False
+            if minutes < 0 or minutes > 59:
+                return False
+
+            return True
+        except (ValueError, IndexError):
+            return False
+
     def save_feeding_data(self, feeding_data=None):
         """Save feeding data to JSON file"""
         if feeding_data is None:
@@ -78,11 +101,18 @@ class BabyFeedingBot:
             logger.error(f"Error saving feeding data: {e}")
             print(f"❌ Error saving data: {e}")
 
-    def add_feeding(self, amount_ml, user_id):
+    def add_feeding(self, amount_ml, user_id, custom_time=None):
         """Add a feeding entry for today - read from file, modify, save back"""
         amsterdam_time = self.get_amsterdam_time()
         today = amsterdam_time.strftime("%Y-%m-%d")
-        timestamp = amsterdam_time.strftime("%H:%M:%S")
+
+        # Use custom time if provided, otherwise use current time
+        if custom_time:
+            # custom_time should be in HH:MM format, convert to HH:MM:SS
+            timestamp = f"{custom_time}:00"
+        else:
+            timestamp = amsterdam_time.strftime("%H:%M:%S")
+
         user_name = self.get_user_name(user_id)
         user_initial = user_name[0].upper() if user_name else "?"
 
@@ -478,18 +508,35 @@ class BabyFeedingBot:
             try:
                 amount = int(message_text)
                 if amount > 0 and amount <= 500:  # Reasonable max for baby feeding
-                    self.add_feeding(amount, user_id)
-                    amsterdam_time = self.get_amsterdam_time()
-                    print(f"🍼 Added feeding: {amount}ml for user {user_id} ({user_name})")
+                    print(f"🍼 Received feeding amount: {amount}ml for user {user_id} ({user_name})")
 
-                    # Clear the awaiting state
+                    # Store the amount and set flag to wait for time
+                    context.user_data['feeding_amount'] = amount
                     context.user_data['awaiting_feeding_amount'] = False
+                    context.user_data['awaiting_feeding_time'] = True
 
-                    await update.message.reply_text(f"✅ Fles toegevoegd: {amount}ml om {amsterdam_time.strftime('%H:%M')} (Amsterdam tijd)")
+                    await update.message.reply_text("🕐 Wanneer is het begin van deze flesvoeding? Geef de tijd in het formaat UU:MM (bijvoorbeeld 13:02 of 22:04)")
                 else:
                     await update.message.reply_text("❌ Voer een geldig aantal ml in (1-500).")
             except ValueError:
                 await update.message.reply_text("❌ Voer alleen een getal in voor de ml hoeveelheid.")
+            return
+
+        # Check if we're waiting for a feeding time
+        if context.user_data.get('awaiting_feeding_time'):
+            # Validate time format HH:MM
+            if self._validate_time_format(message_text):
+                amount = context.user_data['feeding_amount']
+                self.add_feeding(amount, user_id, message_text)
+                print(f"🍼 Added feeding with custom time: {amount}ml at {message_text} for user {user_id} ({user_name})")
+
+                # Clear the awaiting states
+                context.user_data['awaiting_feeding_time'] = False
+                context.user_data.pop('feeding_amount', None)
+
+                await update.message.reply_text(f"✅ Fles toegevoegd: {amount}ml om {message_text} (Amsterdam tijd)")
+            else:
+                await update.message.reply_text("❌ Ongeldig tijdformaat. Gebruik UU:MM formaat (bijvoorbeeld 13:02 of 22:04). Probeer opnieuw:")
             return
 
         # Check if we're waiting for a temperature value

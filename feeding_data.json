@@ -59,6 +59,158 @@
       "type": "drink",
       "amount_ml": 65,
       "user": "Z"
+    },
+    {
+      "time": "19:17:27",
+      "type": "diaper",
+      "diaper_type": "peed",
+      "user": "R"
+    },
+    {
+      "time": "19:17:34",
+      "type": "drink",
+      "amount_ml": 65,
+      "user": "R"
+    },
+    {
+      "time": "19:18:59",
+      "type": "temperature",
+      "temperature_celsius": 36.6,
+      "user": "R"
+    },
+    {
+      "time": "21:29:54",
+      "type": "drink",
+      "amount_ml": 35,
+      "user": "R"
+    },
+    {
+      "time": "21:30:07",
+      "type": "diaper",
+      "diaper_type": "both",
+      "user": "R"
+    },
+    {
+      "time": "21:30:40",
+      "type": "temperature",
+      "temperature_celsius": 36.6,
+      "user": "R"
+    },
+    {
+      "time": "22:52:01",
+      "type": "drink",
+      "amount_ml": 65,
+      "user": "Z"
+    },
+    {
+      "time": "23:44:01",
+      "type": "drink",
+      "amount_ml": 35,
+      "user": "R"
+    },
+    {
+      "time": "23:44:21",
+      "type": "diaper",
+      "diaper_type": "both",
+      "user": "R"
+    }
+  ],
+  "2025-09-04": [
+    {
+      "time": "00:52:27",
+      "type": "drink",
+      "amount_ml": 25,
+      "user": "R"
+    },
+    {
+      "time": "01:03:29",
+      "type": "diaper",
+      "diaper_type": "peed",
+      "user": "Z"
+    },
+    {
+      "time": "01:03:57",
+      "type": "temperature",
+      "temperature_celsius": 36.8,
+      "user": "Z"
+    },
+    {
+      "time": "01:19:27",
+      "type": "drink",
+      "amount_ml": 25,
+      "user": "R"
+    },
+    {
+      "time": "07:57:09",
+      "type": "drink",
+      "amount_ml": 60,
+      "user": "R"
+    },
+    {
+      "time": "07:57:31",
+      "type": "diaper",
+      "diaper_type": "peed",
+      "user": "R"
+    },
+    {
+      "time": "07:58:16",
+      "type": "temperature",
+      "temperature_celsius": 36.8,
+      "user": "R"
+    },
+    {
+      "time": "10:52:44",
+      "type": "diaper",
+      "diaper_type": "peed",
+      "user": "R"
+    },
+    {
+      "time": "10:52:50",
+      "type": "drink",
+      "amount_ml": 65,
+      "user": "R"
+    },
+    {
+      "time": "12:14:19",
+      "type": "drink",
+      "amount_ml": 35,
+      "user": "R"
+    },
+    {
+      "time": "13:07:17",
+      "type": "diaper",
+      "diaper_type": "peed",
+      "user": "R"
+    },
+    {
+      "time": "14:51:24",
+      "type": "diaper",
+      "diaper_type": "peed",
+      "user": "R"
+    },
+    {
+      "time": "14:51:30",
+      "type": "temperature",
+      "temperature_celsius": 36.6,
+      "user": "R"
+    },
+    {
+      "time": "15:04:26",
+      "type": "drink",
+      "amount_ml": 65,
+      "user": "R"
+    },
+    {
+      "time": "13:37:00",
+      "type": "drink",
+      "amount_ml": 190,
+      "user": "Z"
+    },
+    {
+      "time": "0:00:00",
+      "type": "drink",
+      "amount_ml": 100,
+      "user": "Z"
     }
   ]
 }
