@@ -186,6 +186,41 @@ class BabyFeedingBot:
         # Save back to file
         self.save_feeding_data(feeding_data)
 
+    def delete_last_entry(self, entry_type):
+        """Delete the last entry of a specific type for today - read from file, modify, save back"""
+        amsterdam_time = self.get_amsterdam_time()
+        today = amsterdam_time.strftime("%Y-%m-%d")
+
+        # Read current data from file
+        feeding_data = self.load_feeding_data()
+
+        # Ensure today's entry exists
+        if today not in feeding_data:
+            return None, "Geen data gevonden voor vandaag"
+
+        # Find all entries of the specified type for today
+        type_entries = []
+        for entry in feeding_data[today]:
+            if entry.get('type') == entry_type:
+                type_entries.append(entry)
+
+        if not type_entries:
+            return None, f"Geen {entry_type} entries gevonden voor vandaag"
+
+        # Sort by time to find the last one
+        type_entries.sort(key=lambda x: x['time'])
+
+        # Get the last entry
+        last_entry = type_entries[-1]
+
+        # Remove the last entry
+        feeding_data[today].remove(last_entry)
+
+        # Save back to file
+        self.save_feeding_data(feeding_data)
+
+        return last_entry, None
+
     def get_today_feedings(self):
         """Get all feedings for today - read directly from file"""
         amsterdam_time = self.get_amsterdam_time()
@@ -311,7 +346,7 @@ class BabyFeedingBot:
             return
 
         print(f"✅ Authorized user {user_id} ({user_name}) started the bot")
-        await update.message.reply_text("👸 Baby Feeding Tracker Online!\n\n📋 Commands:\n/start - Toon hulp\n/today - Bekijk dagelijkse gebeurtenissen\n/toevoegen_fles - Voeg flesvoeding toe\n/toevoegen_temp - Voeg temperatuur toe\n/toevoegen_luier - Voeg luiersessie toe")
+        await update.message.reply_text("👸 Baby Feeding Tracker Online!\n\n📋 Commands:\n/start - Toon hulp\n/today - Bekijk dagelijkse gebeurtenissen\n/toevoegen_fles - Voeg flesvoeding toe\n/toevoegen_temp - Voeg temperatuur toe\n/toevoegen_luier - Voeg luiersessie toe\n/delete_last - Verwijder laatste invoer")
 
     async def today_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /today command to show today's feedings"""
@@ -388,8 +423,7 @@ class BabyFeedingBot:
             diaper_names = {
                 "pooped": "💩 Gepoept",
                 "peed": "💧 Geplast",
-                "both": "🧷 Beiden",
-                "urine": "💧 Geplast"  # Handle legacy "urine" type
+                "both": "🧷 Beiden"
             }
             message += "🧷 Luiers:\n"
             for i, diaper in enumerate(diaper_changes, 1):
@@ -444,6 +478,38 @@ class BabyFeedingBot:
 
         await update.message.reply_text(
             "👸 Kies het type luierwissel:",
+            reply_markup=reply_markup
+        )
+
+    async def delete_last_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /delete_last command to delete the last entry of a specific type"""
+        user_id = update.effective_user.id
+        username = update.effective_user.username or "No username"
+        user_name = self.get_user_name(user_id)
+
+        print(f"📨 /delete_last command received from User ID: {user_id} ({user_name}) (Username: {username})")
+
+        if not self.is_authorized(user_id):
+            print(f"❌ Unauthorized user {user_id} ({user_name}) tried to use /delete_last")
+            await update.message.reply_text("❌ Sorry, you are not authorized to use this bot.")
+            return
+
+        print(f"✅ Authorized user {user_id} ({user_name}) requested delete options")
+
+        # Create inline keyboard with delete options
+        keyboard = [
+            [
+                InlineKeyboardButton("🍼 Laatste Fles", callback_data="delete_drink"),
+                InlineKeyboardButton("🌡️ Laatste Temp", callback_data="delete_temperature"),
+            ],
+            [
+                InlineKeyboardButton("🧷 Laatste Luier", callback_data="delete_diaper"),
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            "🗑️ Welke laatste invoer wil je verwijderen?",
             reply_markup=reply_markup
         )
 
@@ -560,7 +626,7 @@ class BabyFeedingBot:
 
         # If not waiting for feeding amount, show help
         print(f"🤔 Unrecognized message from user {user_id} ({user_name}): {message_text}")
-        await update.message.reply_text("🤔 Ik begrijp dat niet.\n\n📋 Beschikbare commando's:\n/start - Toon hulp\n/today - Bekijk dagelijkse gebeurtenissen\n/toevoegen_fles - Voeg flesvoeding toe\n/toevoegen_temp - Voeg temperatuur toe\n/toevoegen_luier - Voeg luiersessie toe")
+        await update.message.reply_text("🤔 Ik begrijp dat niet.\n\n📋 Beschikbare commando's:\n/start - Toon hulp\n/today - Bekijk dagelijkse gebeurtenissen\n/toevoegen_fles - Voeg flesvoeding toe\n/toevoegen_temp - Voeg temperatuur toe\n/toevoegen_luier - Voeg luiersessie toe\n/delete_last - Verwijder laatste invoer")
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle callback queries from inline keyboards"""
@@ -596,6 +662,48 @@ class BabyFeedingBot:
                 f"Tijd: {self.get_amsterdam_time().strftime('%H:%M')} (Amsterdam tijd)"
             )
 
+        elif callback_data.startswith("delete_"):
+            entry_type = callback_data.split("_")[1]
+
+            # Map entry types to readable names
+            type_names = {
+                "drink": "🍼 Flesvoeding",
+                "temperature": "🌡️ Temperatuur",
+                "diaper": "🧷 Luiersessie"
+            }
+
+            readable_name = type_names.get(entry_type, entry_type)
+
+            # Delete the last entry
+            deleted_entry, error = self.delete_last_entry(entry_type)
+
+            if error:
+                print(f"❌ Delete failed for {entry_type}: {error}")
+                await query.edit_message_text(f"❌ {error}")
+            else:
+                print(f"🗑️ Deleted last {entry_type} entry for user {user_id} ({user_name})")
+                # Format confirmation message
+                if entry_type == "drink":
+                    amount = deleted_entry.get('amount_ml', 'N/A')
+                    time_str = deleted_entry.get('time', 'N/A')
+                    confirmation = f"✅ Laatste {readable_name} verwijderd:\n{amount}ml om {time_str[:5]}"
+                elif entry_type == "temperature":
+                    temp = deleted_entry.get('temperature_celsius', 'N/A')
+                    time_str = deleted_entry.get('time', 'N/A')
+                    confirmation = f"✅ Laatste {readable_name} verwijderd:\n{temp}°C om {time_str[:5]}"
+                elif entry_type == "diaper":
+                    diaper_type = deleted_entry.get('diaper_type', 'N/A')
+                    diaper_names = {
+                        "pooped": "💩 Gepoept",
+                        "peed": "💧 Geplast",
+                        "both": "🧷 Beiden"
+                    }
+                    readable_diaper = diaper_names.get(diaper_type, diaper_type)
+                    time_str = deleted_entry.get('time', 'N/A')
+                    confirmation = f"✅ Laatste {readable_name} verwijderd:\n{readable_diaper} om {time_str[:5]}"
+
+                await query.edit_message_text(confirmation)
+
     async def send_notification(self, message: str, parse_mode: str = 'HTML') -> None:
         """Send notification to all authorized users"""
         if not self.app:
@@ -626,7 +734,8 @@ class BabyFeedingBot:
             "🍼 Track bottle feedings (/toevoegen_fles)\n"
             "🌡️ Track temperatures (/toevoegen_temp)\n"
             "🧷 Track diaper changes (/toevoegen_luier)\n"
-            "📊 View daily summaries (/today)\n\n"
+            "📊 View daily summaries (/today)\n"
+            "🗑️ Delete last entries (/delete_last)\n\n"
             "Use the commands above to track your baby's health and feeding!"
         )
 
@@ -658,6 +767,7 @@ class BabyFeedingBot:
             self.app.add_handler(CommandHandler("toevoegen_fles", self.bottle_command))
             self.app.add_handler(CommandHandler("toevoegen_temp", self.temperature_command))
             self.app.add_handler(CommandHandler("toevoegen_luier", self.diaper_command))
+            self.app.add_handler(CommandHandler("delete_last", self.delete_last_command))
             self.app.add_handler(CallbackQueryHandler(self.handle_callback))
             self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
@@ -666,7 +776,7 @@ class BabyFeedingBot:
 
             print("🚀 Starting bot polling...")
             print("✅ Bot is running! Send messages to your bot on Telegram.")
-            print("💡 Commands: /start, /today, /toevoegen_fles, /toevoegen_temp, /toevoegen_luier")
+            print("💡 Commands: /start, /today, /toevoegen_fles, /toevoegen_temp, /toevoegen_luier, /delete_last")
             print("🛑 Press Ctrl+C to stop the bot")
             print("🕐 All times are displayed in Amsterdam timezone (CET/CEST)")
 
