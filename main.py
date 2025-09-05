@@ -6,8 +6,12 @@ import asyncio
 import json
 import os
 import re
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import numpy as np
+from io import BytesIO
 
 # Configure logging
 logging.basicConfig(
@@ -221,6 +225,451 @@ class BabyFeedingBot:
 
         return last_entry, None
 
+    def get_total_ml_for_date(self, date_str):
+        """Get total ml for a specific date"""
+        feeding_data = self.load_feeding_data()
+        total_ml = 0
+
+        if date_str in feeding_data:
+            for event in feeding_data[date_str]:
+                if event.get('type') == 'drink':
+                    total_ml += event.get('amount_ml', 0)
+
+        return total_ml
+
+    def get_temperature_for_date(self, date_str):
+        """Get temperature readings for a specific date"""
+        feeding_data = self.load_feeding_data()
+        temperatures = []
+
+        if date_str in feeding_data:
+            for event in feeding_data[date_str]:
+                if event.get('type') == 'temperature':
+                    temperatures.append(event.get('temperature_celsius', 0))
+
+        return temperatures
+
+    def get_diaper_data_for_date(self, date_str):
+        """Get diaper change counts for a specific date"""
+        feeding_data = self.load_feeding_data()
+        diaper_counts = {"pooped": 0, "peed": 0, "both": 0}
+
+        if date_str in feeding_data:
+            for event in feeding_data[date_str]:
+                if event.get('type') == 'diaper':
+                    diaper_type = event.get('diaper_type', '')
+                    if diaper_type in diaper_counts:
+                        diaper_counts[diaper_type] += 1
+
+        return diaper_counts
+
+    def get_diaper_totals_for_period(self, dates):
+        """Get diaper totals for a list of dates - returns separate arrays for each type"""
+        pooped_counts = []
+        peed_counts = []
+        both_counts = []
+
+        for date in dates:
+            if isinstance(date, str):
+                date_str = date
+            else:
+                date_str = date.strftime("%Y-%m-%d")
+
+            diaper_data = self.get_diaper_data_for_date(date_str)
+            pooped_counts.append(diaper_data['pooped'])
+            peed_counts.append(diaper_data['peed'])
+            both_counts.append(diaper_data['both'])
+
+        return pooped_counts, peed_counts, both_counts
+
+    def get_weekly_stats(self):
+        """Generate multi-plot graph for the past 7 days showing feeding, temperature, and diaper data"""
+        amsterdam_time = self.get_amsterdam_time()
+        dates = []
+        ml_totals = []
+        temp_data = []
+        diaper_data = []
+
+        # Get data for the past 7 days (including today)
+        for i in range(6, -1, -1):  # Start from 6 days ago to today
+            day = amsterdam_time - timedelta(days=i)
+            date_str = day.strftime("%Y-%m-%d")
+            dates.append(day)
+            ml_totals.append(self.get_total_ml_for_date(date_str))
+
+            # Get temperature data (average if multiple readings)
+            temps = self.get_temperature_for_date(date_str)
+            avg_temp = sum(temps) / len(temps) if temps else None
+            temp_data.append(avg_temp)
+
+            # Get diaper data (total changes)
+            diapers = self.get_diaper_data_for_date(date_str)
+            total_diapers = diapers['pooped'] + diapers['peed'] + diapers['both']
+            diaper_data.append(total_diapers)
+
+        # Create subplots
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 15))
+        fig.suptitle('Baby Data - Afgelopen Week', fontsize=18, fontweight='bold')
+
+        # Plot 1: Feeding data
+        ax1.plot(dates, ml_totals, marker='o', linestyle='-', color='green', linewidth=2, markersize=8)
+        ax1.set_title('Flesvoeding (Totaal ML per Dag)', fontsize=14)
+        ax1.set_ylabel('ML', fontsize=12)
+        ax1.grid(True, alpha=0.3)
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m'))
+        ax1.set_xticks(dates)
+
+        if ml_totals:
+            max_ml = max(ml_totals)
+            ax1.set_ylim(0, max(max_ml + 100, 200))
+
+        for i, ml in enumerate(ml_totals):
+            ax1.annotate(f'{ml}ml', (dates[i], ml_totals[i]), textcoords="offset points", xytext=(0,10), ha='center')
+
+        # Plot 2: Temperature data
+        valid_temps = [(d, t) for d, t in zip(dates, temp_data) if t is not None]
+        if valid_temps:
+            temp_dates, temp_values = zip(*valid_temps)
+            ax2.plot(temp_dates, temp_values, marker='s', linestyle='-', color='red', linewidth=2, markersize=8)
+            ax2.set_title('Temperatuur (Gemiddeld per Dag)', fontsize=14)
+            ax2.set_ylabel('°C', fontsize=12)
+            ax2.grid(True, alpha=0.3)
+            ax2.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m'))
+            ax2.set_xticks(dates)
+
+            # Draw reference line at 37°C with 50% opacity
+            ax2.axhline(y=37, color='red', linestyle='-', alpha=0.5, linewidth=2, label='Normaal (37°C)')
+
+            # Set y-axis range from 34 to 40
+            ax2.set_ylim(34, 40)
+
+            for i, temp in enumerate(temp_data):
+                if temp is not None:
+                    ax2.annotate(f'{temp:.1f}°C', (dates[i], temp), textcoords="offset points", xytext=(0,10), ha='center')
+
+            for i, temp in enumerate(temp_data):
+                if temp is not None:
+                    ax2.annotate(f'{temp:.1f}°C', (dates[i], temp), textcoords="offset points", xytext=(0,10), ha='center')
+        else:
+            ax2.text(0.5, 0.5, 'Geen temperatuur data beschikbaar', ha='center', va='center', transform=ax2.transAxes)
+            ax2.set_title('Temperatuur (Geen data)', fontsize=14)
+            # Set default range 34 to 40 even when no data
+            ax2.set_ylim(34, 40)
+            # Still draw the reference line
+            ax2.axhline(y=37, color='red', linestyle='-', alpha=0.5, linewidth=2, label='Normaal (37°C)')
+
+        # Plot 3: Diaper data (bar chart)
+        pooped_counts, peed_counts, both_counts = self.get_diaper_totals_for_period(dates)
+
+        # Create bar positions
+        x = np.arange(len(dates))
+        width = 0.25  # width of each bar
+
+        # Create grouped bars
+        bars1 = ax3.bar(x - width, pooped_counts, width, label='Gepoept', color='#D2B48C', alpha=0.8)  # Light brown
+        bars2 = ax3.bar(x, peed_counts, width, label='Geplast', color='#4169E1', alpha=0.8)  # Blue
+        bars3 = ax3.bar(x + width, both_counts, width, label='Beiden', color='#8B4513', alpha=0.8)  # Dark poop brown
+
+        # Add value labels above bars
+        for bars, counts in [(bars1, pooped_counts), (bars2, peed_counts), (bars3, both_counts)]:
+            for bar, count in zip(bars, counts):
+                if count > 0:  # Only show label if count > 0
+                    height = bar.get_height()
+                    ax3.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                            f'{int(count)}', ha='center', va='bottom', color='black', fontweight='bold')
+
+        ax3.set_title('Luiers (per Type per Dag)', fontsize=14)
+        ax3.set_xlabel('Datum', fontsize=12)
+        ax3.set_ylabel('Aantal', fontsize=12)
+        ax3.set_xticks(x)
+        ax3.set_xticklabels([d.strftime('%d-%m') for d in dates])
+        ax3.legend()
+        ax3.grid(True, alpha=0.3, axis='y')
+
+        # Set y-axis limits
+        max_diapers = max(max(pooped_counts), max(peed_counts), max(both_counts)) if pooped_counts else 0
+        ax3.set_ylim(0, max(max_diapers + 2, 5))
+
+        plt.tight_layout()
+
+        # Save to BytesIO for Telegram
+        buf = BytesIO()
+        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        buf.seek(0)
+        plt.close()
+
+        return buf
+
+    def get_monthly_stats(self):
+        """Generate multi-plot graph for the past 30 days showing feeding, temperature, and diaper data"""
+        amsterdam_time = self.get_amsterdam_time()
+        dates = []
+        ml_totals = []
+        temp_data = []
+        diaper_data = []
+
+        # Get data for the past 30 days (including today)
+        for i in range(29, -1, -1):  # Start from 29 days ago to today
+            day = amsterdam_time - timedelta(days=i)
+            date_str = day.strftime("%Y-%m-%d")
+            dates.append(day)
+            ml_totals.append(self.get_total_ml_for_date(date_str))
+
+            # Get temperature data (average if multiple readings)
+            temps = self.get_temperature_for_date(date_str)
+            avg_temp = sum(temps) / len(temps) if temps else None
+            temp_data.append(avg_temp)
+
+            # Get diaper data (total changes)
+            diapers = self.get_diaper_data_for_date(date_str)
+            total_diapers = diapers['pooped'] + diapers['peed'] + diapers['both']
+            diaper_data.append(total_diapers)
+
+        # Create subplots
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 16))
+        fig.suptitle('Baby Data - Afgelopen Maand', fontsize=18, fontweight='bold')
+
+        # Plot 1: Feeding data
+        ax1.plot(dates, ml_totals, marker='o', linestyle='-', color='green', linewidth=2, markersize=8)
+        ax1.set_title('Flesvoeding (Totaal ML per Dag)', fontsize=14)
+        ax1.set_ylabel('ML', fontsize=12)
+        ax1.grid(True, alpha=0.3)
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m'))
+        ax1.set_xticks(dates)
+
+        if ml_totals:
+            max_ml = max(ml_totals)
+            ax1.set_ylim(0, max(max_ml + 100, 200))
+
+        for i, ml in enumerate(ml_totals):
+            ax1.annotate(f'{ml}ml', (dates[i], ml_totals[i]), textcoords="offset points", xytext=(0,10), ha='center')
+
+        # Plot 2: Temperature data
+        valid_temps = [(d, t) for d, t in zip(dates, temp_data) if t is not None]
+        if valid_temps:
+            temp_dates, temp_values = zip(*valid_temps)
+            ax2.plot(temp_dates, temp_values, marker='s', linestyle='-', color='red', linewidth=2, markersize=8)
+            ax2.set_title('Temperatuur (Gemiddeld per Dag)', fontsize=14)
+            ax2.set_ylabel('°C', fontsize=12)
+            ax2.grid(True, alpha=0.3)
+            ax2.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m'))
+            ax2.set_xticks(dates)
+
+            # Draw reference line at 37°C with 50% opacity
+            ax2.axhline(y=37, color='red', linestyle='-', alpha=0.5, linewidth=2, label='Normaal (37°C)')
+
+            # Set y-axis range from 34 to 40
+            ax2.set_ylim(34, 40)
+
+            for i, temp in enumerate(temp_data):
+                if temp is not None:
+                    ax2.annotate(f'{temp:.1f}°C', (dates[i], temp), textcoords="offset points", xytext=(0,10), ha='center')
+        else:
+            ax2.text(0.5, 0.5, 'Geen temperatuur data beschikbaar', ha='center', va='center', transform=ax2.transAxes)
+            ax2.set_title('Temperatuur (Geen data)', fontsize=14)
+            # Set default range 34 to 40 even when no data
+            ax2.set_ylim(34, 40)
+            # Still draw the reference line
+            ax2.axhline(y=37, color='red', linestyle='-', alpha=0.5, linewidth=2, label='Normaal (37°C)')
+
+        # Plot 3: Diaper data (bar chart)
+        pooped_counts, peed_counts, both_counts = self.get_diaper_totals_for_period(dates)
+
+        # Create bar positions
+        x = np.arange(len(dates))
+        width = 0.25  # width of each bar
+
+        # Create grouped bars
+        bars1 = ax3.bar(x - width, pooped_counts, width, label='Gepoept', color='#D2B48C', alpha=0.8)  # Light brown
+        bars2 = ax3.bar(x, peed_counts, width, label='Geplast', color='#4169E1', alpha=0.8)  # Blue
+        bars3 = ax3.bar(x + width, both_counts, width, label='Beiden', color='#8B4513', alpha=0.8)  # Dark poop brown
+
+        # Add value labels above bars
+        for bars, counts in [(bars1, pooped_counts), (bars2, peed_counts), (bars3, both_counts)]:
+            for bar, count in zip(bars, counts):
+                if count > 0:  # Only show label if count > 0
+                    height = bar.get_height()
+                    ax3.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                            f'{int(count)}', ha='center', va='bottom', color='black', fontweight='bold')
+
+        ax3.set_title('Luiers (per Type per Dag)', fontsize=14)
+        ax3.set_xlabel('Datum', fontsize=12)
+        ax3.set_ylabel('Aantal', fontsize=12)
+        ax3.set_xticks(x)
+        ax3.set_xticklabels([d.strftime('%d-%m') for d in dates])
+        ax3.legend()
+        ax3.grid(True, alpha=0.3, axis='y')
+
+        # Set y-axis limits
+        max_diapers = max(max(pooped_counts), max(peed_counts), max(both_counts)) if pooped_counts else 0
+        ax3.set_ylim(0, max(max_diapers + 2, 5))
+
+        plt.tight_layout()
+
+        # Save to BytesIO for Telegram
+        buf = BytesIO()
+        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        buf.seek(0)
+        plt.close()
+
+        return buf
+
+    def get_all_time_stats(self):
+        """Generate multi-plot graph for all time showing feeding, temperature, and diaper data"""
+        feeding_data = self.load_feeding_data()
+        amsterdam_time = self.get_amsterdam_time()
+
+        # Sort dates chronologically
+        sorted_dates = sorted(feeding_data.keys())
+        dates = []
+        ml_totals = []
+
+        for date_str in sorted_dates:
+            # Convert string date to datetime object
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+            dates.append(date_obj)
+            ml_totals.append(self.get_total_ml_for_date(date_str))
+
+        # Add today's date as the last point if not already included
+        today_date = amsterdam_time.date()
+        if not dates or dates[-1] != today_date:
+            dates.append(today_date)
+            ml_totals.append(self.get_total_ml_for_date(amsterdam_time.strftime("%Y-%m-%d")))
+
+
+        # Add temperature and diaper data for existing dates
+        temp_data = []
+        diaper_data = []
+
+        for date_str in sorted_dates:
+            # Get temperature data (average if multiple readings)
+            temps = self.get_temperature_for_date(date_str)
+            avg_temp = sum(temps) / len(temps) if temps else None
+            temp_data.append(avg_temp)
+
+            # Get diaper data (total changes)
+            diapers = self.get_diaper_data_for_date(date_str)
+            total_diapers = diapers['pooped'] + diapers['peed'] + diapers['both']
+            diaper_data.append(total_diapers)
+
+        # Add today's data if not already included
+        if not dates or dates[-1] != today_date:
+            # Add temperature and diaper data for today
+            temps = self.get_temperature_for_date(amsterdam_time.strftime("%Y-%m-%d"))
+            avg_temp = sum(temps) / len(temps) if temps else None
+            temp_data.append(avg_temp)
+
+            diapers = self.get_diaper_data_for_date(amsterdam_time.strftime("%Y-%m-%d"))
+            total_diapers = diapers['pooped'] + diapers['peed'] + diapers['both']
+            diaper_data.append(total_diapers)
+
+        # Create subplots
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(16, 18))
+        fig.suptitle('Baby Data - Vanaf Begin', fontsize=18, fontweight='bold')
+
+        # Plot 1: Feeding data
+        ax1.plot(dates, ml_totals, marker='o', linestyle='-', color='green', linewidth=2, markersize=8)
+        ax1.set_title('Flesvoeding (Totaal ML per Dag)', fontsize=14)
+        ax1.set_ylabel('ML', fontsize=12)
+        ax1.grid(True, alpha=0.3)
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
+        ax1.set_xticks(dates)
+
+        if ml_totals:
+            max_ml = max(ml_totals)
+            ax1.set_ylim(0, max_ml + 100)
+
+        for i, ml in enumerate(ml_totals):
+            ax1.annotate(f'{ml}ml', (dates[i], ml_totals[i]), textcoords="offset points", xytext=(0,10), ha='center')
+
+        # Plot 2: Temperature data
+        valid_temps = [(d, t) for d, t in zip(dates, temp_data) if t is not None]
+        if valid_temps:
+            temp_dates, temp_values = zip(*valid_temps)
+            ax2.plot(temp_dates, temp_values, marker='s', linestyle='-', color='red', linewidth=2, markersize=8)
+            ax2.set_title('Temperatuur (Gemiddeld per Dag)', fontsize=14)
+            ax2.set_ylabel('°C', fontsize=12)
+            ax2.grid(True, alpha=0.3)
+            ax2.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
+            ax2.set_xticks(dates)
+
+            # Draw reference line at 37°C with 50% opacity
+            ax2.axhline(y=37, color='red', linestyle='-', alpha=0.5, linewidth=2, label='Normaal (37°C)')
+
+            # Set y-axis range from 34 to 40
+            ax2.set_ylim(34, 40)
+
+            for i, temp in enumerate(temp_data):
+                if temp is not None:
+                    ax2.annotate(f'{temp:.1f}°C', (dates[i], temp), textcoords="offset points", xytext=(0,10), ha='center')
+        else:
+            ax2.text(0.5, 0.5, 'Geen temperatuur data beschikbaar', ha='center', va='center', transform=ax2.transAxes)
+            ax2.set_title('Temperatuur (Geen data)', fontsize=14)
+            # Set default range 34 to 40 even when no data
+            ax2.set_ylim(34, 40)
+            # Still draw the reference line
+            ax2.axhline(y=37, color='red', linestyle='-', alpha=0.5, linewidth=2, label='Normaal (37°C)')
+
+        # Plot 3: Diaper data (bar chart)
+        pooped_counts, peed_counts, both_counts = self.get_diaper_totals_for_period(dates)
+
+        # Create bar positions
+        x = np.arange(len(dates))
+        width = 0.25  # consistent width like weekly/monthly
+
+        # Create grouped bars
+        bars1 = ax3.bar(x - width, pooped_counts, width, label='Gepoept', color='#D2B48C', alpha=0.8)  # Light brown
+        bars2 = ax3.bar(x, peed_counts, width, label='Geplast', color='#4169E1', alpha=0.8)  # Blue
+        bars3 = ax3.bar(x + width, both_counts, width, label='Beiden', color='#8B4513', alpha=0.8)  # Dark poop brown
+
+        # Add value labels above bars
+        for bars, counts in [(bars1, pooped_counts), (bars2, peed_counts), (bars3, both_counts)]:
+            for bar, count in zip(bars, counts):
+                if count > 0:  # Only show label if count > 0
+                    height = bar.get_height()
+                    ax3.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                            f'{int(count)}', ha='center', va='bottom', color='black', fontweight='bold')
+
+        ax3.set_title('Luiers (per Type per Dag)', fontsize=14)
+        ax3.set_xlabel('Datum', fontsize=12)
+        ax3.set_ylabel('Aantal', fontsize=12)
+        ax3.legend()
+        ax3.grid(True, alpha=0.3, axis='y')
+
+        # Set consistent x-axis ticks for even spacing
+        ax3.set_xticks(x)
+        if len(dates) <= 15:
+            ax3.set_xticklabels([d.strftime('%d-%m') for d in dates])
+        else:
+            # For many dates, use date formatter but maintain even spacing
+            ax3.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
+            # Ensure ticks are evenly spaced
+            if len(dates) > 20:
+                step = max(1, len(dates) // 10)
+                ax3.set_xticks(x[::step])
+                ax3.set_xticklabels([dates[i].strftime('%d-%m-%Y') for i in range(0, len(dates), step)])
+
+        # Set y-axis limits
+        max_diapers = max(max(pooped_counts), max(peed_counts), max(both_counts)) if pooped_counts else 0
+        ax3.set_ylim(0, max(max_diapers + 2, 5))
+
+        # Set tick formatting for feeding and temperature plots (exclude bar chart)
+        for ax in [ax1, ax2]:
+            if len(dates) <= 15:
+                ax.set_xticks(dates)
+            else:
+                ax.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(dates)//12)))
+
+        plt.tight_layout()
+
+        # Save to BytesIO for Telegram
+        buf = BytesIO()
+        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        buf.seek(0)
+        plt.close()
+
+        return buf
+
     def get_today_feedings(self):
         """Get all feedings for today - read directly from file"""
         amsterdam_time = self.get_amsterdam_time()
@@ -346,18 +795,18 @@ class BabyFeedingBot:
             return
 
         print(f"✅ Authorized user {user_id} ({user_name}) started the bot")
-        await update.message.reply_text("👸 Baby Feeding Tracker Online!\n\n📋 Commands:\n/start - Toon hulp\n/today - Bekijk dagelijkse gebeurtenissen\n/toevoegen_fles - Voeg flesvoeding toe\n/toevoegen_temp - Voeg temperatuur toe\n/toevoegen_luier - Voeg luiersessie toe\n/delete_last - Verwijder laatste invoer")
+        await update.message.reply_text("👸 Baby Feeding Tracker Online!\n\n📋 Commands:\n/start - Toon hulp\n/overzicht - Overzicht van vandaag\n/toevoegen_fles - Fles registreren\n/toevoegen_temp - Temperatuur registreren\n/toevoegen_luier - Luier registreren\n/verwijder_laatste - Laatste invoer ongedaan maken\n/grafiek - Krijg informatie van de afgelopen week, maand of begin")
 
-    async def today_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /today command to show today's feedings"""
+    async def overzicht_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /overzicht command to show today's feedings"""
         user_id = update.effective_user.id
         username = update.effective_user.username or "No username"
         user_name = self.get_user_name(user_id)
 
-        print(f"📨 /today command received from User ID: {user_id} ({user_name}) (Username: {username})")
+        print(f"📨 /overzicht command received from User ID: {user_id} ({user_name}) (Username: {username})")
 
         if not self.is_authorized(user_id):
-            print(f"❌ Unauthorized user {user_id} ({user_name}) tried to use /today")
+            print(f"❌ Unauthorized user {user_id} ({user_name}) tried to use /overzicht")
             await update.message.reply_text("❌ Sorry, you are not authorized to use this bot.")
             return
 
@@ -481,16 +930,48 @@ class BabyFeedingBot:
             reply_markup=reply_markup
         )
 
-    async def delete_last_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /delete_last command to delete the last entry of a specific type"""
+    async def grafiek_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /grafiek command to show statistics for different time periods"""
         user_id = update.effective_user.id
         username = update.effective_user.username or "No username"
         user_name = self.get_user_name(user_id)
 
-        print(f"📨 /delete_last command received from User ID: {user_id} ({user_name}) (Username: {username})")
+        print(f"📨 /grafiek command received from User ID: {user_id} ({user_name}) (Username: {username})")
 
         if not self.is_authorized(user_id):
-            print(f"❌ Unauthorized user {user_id} ({user_name}) tried to use /delete_last")
+            print(f"❌ Unauthorized user {user_id} ({user_name}) tried to use /grafiek")
+            await update.message.reply_text("❌ Sorry, you are not authorized to use this bot.")
+            return
+
+        print(f"✅ Authorized user {user_id} ({user_name}) requested statistics options")
+
+        # Create inline keyboard with time period options
+        keyboard = [
+            [
+                InlineKeyboardButton("📅 Afgelopen Week", callback_data="stats_week"),
+                InlineKeyboardButton("📊 Afgelopen Maand", callback_data="stats_month"),
+            ],
+            [
+                InlineKeyboardButton("🗓️ Vanaf Begin", callback_data="stats_all"),
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            "📊 Kies de periode waarvoor je statistieken wilt zien:",
+            reply_markup=reply_markup
+        )
+
+    async def verwijder_laatste_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /verwijder_laatste command to delete the last entry of a specific type"""
+        user_id = update.effective_user.id
+        username = update.effective_user.username or "No username"
+        user_name = self.get_user_name(user_id)
+
+        print(f"📨 /verwijder_laatste command received from User ID: {user_id} ({user_name}) (Username: {username})")
+
+        if not self.is_authorized(user_id):
+            print(f"❌ Unauthorized user {user_id} ({user_name}) tried to use /verwijder_laatste")
             await update.message.reply_text("❌ Sorry, you are not authorized to use this bot.")
             return
 
@@ -626,7 +1107,7 @@ class BabyFeedingBot:
 
         # If not waiting for feeding amount, show help
         print(f"🤔 Unrecognized message from user {user_id} ({user_name}): {message_text}")
-        await update.message.reply_text("🤔 Ik begrijp dat niet.\n\n📋 Beschikbare commando's:\n/start - Toon hulp\n/today - Bekijk dagelijkse gebeurtenissen\n/toevoegen_fles - Voeg flesvoeding toe\n/toevoegen_temp - Voeg temperatuur toe\n/toevoegen_luier - Voeg luiersessie toe\n/delete_last - Verwijder laatste invoer")
+        await update.message.reply_text("🤔 Ik begrijp dat niet.\n\n📋 Beschikbare commando's:\n/start - Toon hulp\n/overzicht - Overzicht van vandaag\n/toevoegen_fles - Fles registreren\n/toevoegen_temp - Temperatuur registreren\n/toevoegen_luier - Luier registreren\n/verwijder_laatste - Laatste invoer ongedaan maken\n/grafiek - Krijg informatie van de afgelopen week, maand of begin")
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle callback queries from inline keyboards"""
@@ -704,6 +1185,30 @@ class BabyFeedingBot:
 
                 await query.edit_message_text(confirmation)
 
+        elif callback_data.startswith("stats_"):
+            period = callback_data.split("_")[1]
+
+            # Get statistics based on period
+            if period == "week":
+                stats_image = self.get_weekly_stats()
+                period_name = "afgelopen week"
+            elif period == "month":
+                stats_image = self.get_monthly_stats()
+                period_name = "afgelopen maand"
+            elif period == "all":
+                stats_image = self.get_all_time_stats()
+                period_name = "vanaf het begin"
+            else:
+                await query.edit_message_text("❌ Ongeldige periode geselecteerd.")
+                return
+
+            # Send the graph as a photo
+            await query.message.reply_photo(
+                photo=stats_image,
+                caption=f"📊 Baby voeding overzicht - {period_name}"
+            )
+            await query.edit_message_text(f"✅ Grafiek verzonden voor {period_name}!")
+
     async def send_notification(self, message: str, parse_mode: str = 'HTML') -> None:
         """Send notification to all authorized users"""
         if not self.app:
@@ -734,8 +1239,9 @@ class BabyFeedingBot:
             "🍼 Track bottle feedings (/toevoegen_fles)\n"
             "🌡️ Track temperatures (/toevoegen_temp)\n"
             "🧷 Track diaper changes (/toevoegen_luier)\n"
-            "📊 View daily summaries (/today)\n"
-            "🗑️ Delete last entries (/delete_last)\n\n"
+            "📊 View daily summaries (/overzicht)\n"
+            "🗑️ Delete last entries (/verwijder_laatste)\n"
+            "📈 View statistics (/grafiek)\n\n"
             "Use the commands above to track your baby's health and feeding!"
         )
 
@@ -763,11 +1269,12 @@ class BabyFeedingBot:
             print("📡 Adding command handlers...")
             # Add handlers
             self.app.add_handler(CommandHandler("start", self.start_command))
-            self.app.add_handler(CommandHandler("today", self.today_command))
+            self.app.add_handler(CommandHandler("overzicht", self.overzicht_command))
             self.app.add_handler(CommandHandler("toevoegen_fles", self.bottle_command))
             self.app.add_handler(CommandHandler("toevoegen_temp", self.temperature_command))
             self.app.add_handler(CommandHandler("toevoegen_luier", self.diaper_command))
-            self.app.add_handler(CommandHandler("delete_last", self.delete_last_command))
+            self.app.add_handler(CommandHandler("verwijder_laatste", self.verwijder_laatste_command))
+            self.app.add_handler(CommandHandler("grafiek", self.grafiek_command))
             self.app.add_handler(CallbackQueryHandler(self.handle_callback))
             self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
@@ -776,7 +1283,7 @@ class BabyFeedingBot:
 
             print("🚀 Starting bot polling...")
             print("✅ Bot is running! Send messages to your bot on Telegram.")
-            print("💡 Commands: /start, /today, /toevoegen_fles, /toevoegen_temp, /toevoegen_luier, /delete_last")
+            print("💡 Commands: /start, /overzicht, /toevoegen_fles, /toevoegen_temp, /toevoegen_luier, /verwijder_laatste, /grafiek")
             print("🛑 Press Ctrl+C to stop the bot")
             print("🕐 All times are displayed in Amsterdam timezone (CET/CEST)")
 

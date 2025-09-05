@@ -327,6 +327,12 @@
       "type": "drink",
       "amount_ml": 65,
       "user": "R"
+    },
+    {
+      "time": "14:45:00",
+      "type": "drink",
+      "amount_ml": 35,
+      "user": "Z"
     }
   ]
 }
